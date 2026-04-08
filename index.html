@@ -187,7 +187,7 @@
 
         @media (max-width: 768px) {
             .main-container { flex-direction: column; }
-            aside { width: 100%; height: 35%; border-right: none; border-bottom: 1px solid var(--border-color); }
+            aside { width: 100%; flex: 0 0 40%; height: 40%; border-right: none; border-bottom: 2px solid var(--border-color); }
         }
 
         .toast {
@@ -251,7 +251,7 @@
                 </select>
             </div>
 
-            <button class="action-btn" id="refresh-threads-ai" style="font-size:0.7rem; color:#666;">スレ更新</button>
+            <button class="action-btn" id="refresh-threads-ai" style="font-size:0.7rem; color:#666;">AIにスレを考えさせる</button>
         </div>
         <div id="thread-list"></div>
     </aside>
@@ -260,7 +260,7 @@
         <div id="posts-container">
             <div style="padding: 100px; text-align: center; color: #999;">
                 左からスレッドを選ぶか、新しく立ててください。<br>
-                あなたが書き込んだスレッドのみ「稼働中」となり、レスが付きます。<br>
+                あなたが書き込んだスレッドのみ「稼働中」となり、AIがレスを付けます。<br>
                 ROMモードをONにすると、見ているスレが勝手に進みます。
             </div>
         </div>
@@ -568,6 +568,10 @@ async function init() {
                 if (!t.lastAIPostTime) t.lastAIPostTime = t.lastUpdate || 0;
                 if (!t.nextCooldown) t.nextCooldown = calculateCooldown(state.speedMode, state.romMode, false);
                 if (t.opPersona === undefined) t.opPersona = null; 
+                if (t.isEnded === undefined) t.isEnded = false; // 終了フラグ
+                if (t.endReason === undefined) t.endReason = null; // 終了理由
+                if (t.isSequel === undefined) t.isSequel = false; // 後日談スレかどうか
+                if (t.hasSequelGenerated === undefined) t.hasSequelGenerated = false; // 自分の後日談を作ったか
             });
         } catch(e) {
             console.error("Save data parsing error", e);
@@ -649,6 +653,10 @@ function createNewThreadManual() {
         title: title,
         personality: personality,
         opPersona: null, 
+        isEnded: false,
+        endReason: null,
+        isSequel: false,
+        hasSequelGenerated: false,
         posts: [],
         responseQueue: [],
         momentum: 0,
@@ -683,11 +691,45 @@ async function generateAIThreadsSuggestion() {
         dynamicRules += `・【禁止】しかし、アニメ・ゲーム等のサブカル作品名、地方のマイナーな地名、特定の電車の路線や色、ローカルチェーン店など「知る人ぞ知る固有名詞」はそのまま出さず、必ず${getObfuscationRule()}にしてください。\n`;
     }
 
-    // 体験談スレの出現確率を5%以下に制限
-    if (Math.random() < 0.05) {
-        dynamicRules += "・【指示】今回生成する5つのスレッドのうち、1つだけを「体験談スレ（story）」として作成してください。FIRST_POSTは「今から〇〇の話するけど聞くやついる？」のような語り出しにしてください。\n";
+    let sequelPrompt = "";
+    let targetPastThread = null;
+
+    // 後日談（続編）の抽選ロジック
+    const candidateThreads = state.threads.filter(t => t.personality === 'story' && t.isEnded && !t.isSequel && !t.hasSequelGenerated && t.opPersona);
+    if (candidateThreads.length > 0) {
+        targetPastThread = candidateThreads[Math.floor(Math.random() * candidateThreads.length)];
+        
+        let sequelProb = 0.06; // 基本6%
+        if (targetPastThread.endReason === 'leave') sequelProb = 0.15;
+        else if (targetPastThread.endReason === 'halfway') sequelProb = 0.02;
+        else if (targetPastThread.endReason === 'fadeout' || targetPastThread.endReason === 'abort') sequelProb = 0.04;
+        
+        if (Math.random() < sequelProb) {
+            targetPastThread.hasSequelGenerated = true;
+            saveState();
+            sequelPrompt = `
+・【指示】今回生成する5つのスレッドのうち、1つだけを「以前に立った体験談スレの後日談（続編）」として作成してください。
+  [前回のスレ情報] スレタイ: ${targetPastThread.title} / スレ主の設定: ${targetPastThread.opPersona}
+  
+  後日談スレの作成ルール:
+  - タイトルに「【後日談】」などは付けず、自然な続きのタイトルにしてください。
+  - 1レス目（FIRST_POST）は、「前に〇〇のスレ立てた者だけど」「あの時のこと、少し進展あった」のように、自然に前回の続きだとわかる書き出しにしてください。「前スレの続きです」などの堅苦しい言い方は禁止です。
+  - PERSONALITYは必ず「story」にしてください。
+  - IS_SEQUELを「true」に設定してください。`;
+        } else {
+            targetPastThread = null; 
+        }
+    }
+
+    if (!targetPastThread) {
+        // 体験談スレの出現確率を5%以下に制限
+        if (Math.random() < 0.05) {
+            dynamicRules += "・【指示】今回生成する5つのスレッドのうち、1つだけを「体験談スレ（story）」として作成してください。FIRST_POSTは「今から〇〇の話するけど聞くやついる？」のような語り出しにしてください。\n";
+        } else {
+            dynamicRules += "・【禁止】今回は「体験談スレ（story）」は絶対に生成しないでください。すべて通常の雑談スレ（chill, snarky, chaotic, normal のいずれか）にしてください。\n";
+        }
     } else {
-        dynamicRules += "・【禁止】今回は「体験談スレ（story）」は絶対に生成しないでください。すべて通常の雑談スレ（chill, snarky, chaotic, normal のいずれか）にしてください。\n";
+        dynamicRules += sequelPrompt;
     }
 
     const systemPrompt = `あなたは現実の日本をベースにした世界に存在する匿名掲示板「ざっちゃんねる」のスレッド作成機です。
@@ -705,11 +747,13 @@ ${envInfo}${worldSettingPrompt}
 ${dynamicRules}
 
 【重要】各スレッドは必ず以下のフォーマットで出力してください。NAMEは基本「名無しさん」ですがたまにコテハンにしてください。
-PERSONALITYには、chill または snarky または chaotic または normal （許可されている場合のみ story）のいずれかを入れてください。
+PERSONALITYには、chill または snarky または chaotic または normal または story を入れてください。
+IS_SEQUELには、後日談スレの場合のみ true を、それ以外は false を入れてください。
 
 [THREAD]
 [TITLE]スレタイ[END_TITLE]
-[PERSONALITY]chill または snarky または chaotic または normal または story[END_PERSONALITY]
+[PERSONALITY]性格[END_PERSONALITY]
+[IS_SEQUEL]true または false[END_IS_SEQUEL]
 [NAME]スレ主の名前[END_NAME]
 [OP_PERSONA]このスレを立てたスレ主（>>1）の詳細なキャラクター像・年齢層・口調・境遇（例: 限界アラサー営業職、やたらテンション高い学生、関西弁のオタク など）[END_OP_PERSONA]
 [FIRST_POST]1レス目の本文[END_FIRST_POST]
@@ -727,6 +771,7 @@ PERSONALITYには、chill または snarky または chaotic または normal �
                 const block = tm[1];
                 const titleMatch = block.match(/\[TITLE\]([\s\S]*?)\[END_TITLE\]/i);
                 const persMatch = block.match(/\[PERSONALITY\]([\s\S]*?)\[END_PERSONALITY\]/i);
+                const seqMatch = block.match(/\[IS_SEQUEL\]([\s\S]*?)\[END_IS_SEQUEL\]/i);
                 const nameMatch = block.match(/\[NAME\]([\s\S]*?)\[END_NAME\]/i);
                 const opPersonaMatch = block.match(/\[OP_PERSONA\]([\s\S]*?)\[END_OP_PERSONA\]/i);
                 const firstMatch = block.match(/\[FIRST_POST\]([\s\S]*?)\[END_FIRST_POST\]/i);
@@ -735,6 +780,7 @@ PERSONALITYには、chill または snarky または chaotic または normal �
                     let personality = persMatch ? persMatch[1].trim().toLowerCase() : 'normal';
                     if (!['chill', 'snarky', 'chaotic', 'normal', 'story'].includes(personality)) personality = 'normal';
                     
+                    let isSequel = seqMatch ? seqMatch[1].trim().toLowerCase() === 'true' : false;
                     let posterName = nameMatch ? nameMatch[1].trim() : "名無しさん";
                     let opPersona = opPersonaMatch ? opPersonaMatch[1].trim() : null;
 
@@ -743,6 +789,7 @@ PERSONALITYには、chill または snarky または chaotic または normal �
                         personality: personality,
                         opPersona: opPersona,
                         posterName: posterName,
+                        isSequel: isSequel,
                         firstPost: firstMatch[1].trim()
                     });
                 }
@@ -756,6 +803,10 @@ PERSONALITYには、chill または snarky または chaotic または normal �
                         title: t.title,
                         personality: t.personality,
                         opPersona: t.opPersona,
+                        isEnded: false,
+                        endReason: null,
+                        isSequel: t.isSequel,
+                        hasSequelGenerated: false,
                         posts: [{
                             num: 1,
                             name: t.posterName,
@@ -825,7 +876,7 @@ function updateRomButtonUI() {
 }
 
 async function fetchAndQueueResponses(thread) {
-    if (state.isAIWorking) return;
+    if (state.isAIWorking || thread.isEnded) return; // 終了したスレにはAIは反応しない
     setAIWorking(true);
 
     const context = thread.posts.slice(-5).map(p => `[${p.num}] 名前:${p.name} 本文:${p.body}`).join("\n");
@@ -872,7 +923,7 @@ async function fetchAndQueueResponses(thread) {
 ■ スレ主（名前: ${thread.posts[0].name}）の振る舞い
 ・自身の体験を一度にすべて語らず、小出しにして連続で語ってください（あえて情報を隠す）。
 ・住人からの質問や反応にはほぼ100%答えてください。
-・たまに「ちょっと離脱する」などの演出を入れ、数レス後に戻ってきてください。
+・もし前回離脱や中断をしていた場合は、「戻ったわ」「続きだけど」など自然に話を再開させてください。
 ・最初から綺麗にまとめたり、解説的になることは禁止です。
 
 ■ 他の住人（名無しさんたち）の振る舞い
@@ -884,6 +935,31 @@ async function fetchAndQueueResponses(thread) {
             lengthDistribution = `【レスの長さ分布（厳守）】
 ・スレ主のレス：中〜長文（2行以上）で状況を語る。
 ・観客のレス：極短〜短文（1〜15文字程度）でテンポ良く反応する。`;
+
+            // 体験談スレ特有の「終わり方の減衰・抽選ロジック」
+            let endProb = 0;
+            const len = thread.posts.length;
+            if (len >= 50) endProb = 0.15;
+            else if (len >= 20) endProb = 0.05;
+            
+            if (Math.random() < endProb) {
+                thread.isEnded = true; // システム上で完全に終了させる
+                const endTypeR = Math.random();
+                if (endTypeR < 0.50) {
+                    thread.endReason = 'fadeout';
+                    experiencePrompt += `\n\n【★今回のスレ進行：フェードアウト（自然消滅）】\n今回はスレ主（1君）のレスは一切出力せず、観客の「寝たか？」「保守」など、スレ主不在の短いレスのみを生成し、勝手に止まるリアルな空気を出してください。これがこのスレッドの最後のやり取りになります。`;
+                } else if (endTypeR < 0.75) {
+                    thread.endReason = 'leave';
+                    experiencePrompt += `\n\n【★今回のスレ進行：スレ主の一時離脱（未完）】\nスレ主（1君）に「とりあえず飯食ってくる」「今日はもう寝るわ」「また明日書く」などの理由で離脱宣言をさせてください。観客は「おつ」「はよ戻れ」などと反応させてください。これがこのスレッドの最後のやり取りになります。`;
+                } else if (endTypeR < 0.90) {
+                    thread.endReason = 'halfway';
+                    experiencePrompt += `\n\n【★今回のスレ進行：半端締め】\nスレ主（1君）に「今のところ進展はこれだけ」「とりあえず以上だわ」と一旦話を半端に締めさせてください。観客は「乙」「なんだそれ」などと反応させてください。これがこのスレッドの最後のやり取りになります。`;
+                } else {
+                    thread.endReason = 'abort';
+                    experiencePrompt += `\n\n【★今回のスレ進行：強制打ち切り】\n観客たちが「はい解散」「創作乙」「つまんね」などと一気に冷めてしまい、強制的にスレを終わらせる空気にしてください。スレ主が反発しても構いません。これがこのスレッドの最後のやり取りになります。`;
+                }
+                saveState();
+            }
         }
     }
 
@@ -1066,7 +1142,7 @@ function executePost(thread, payload, isUser, silent = false) {
             badge.style.color = state.romMode ? "#fff" : "#000";
         }
 
-        if (thread.responseQueue.length <= 1 && !state.isAIWorking) {
+        if (thread.responseQueue.length <= 1 && !state.isAIWorking && !thread.isEnded) {
             fetchAndQueueResponses(thread);
         }
 
@@ -1116,7 +1192,7 @@ async function tickSimulation() {
         }
 
         if (state.romMode && isActiveView) {
-            if (thread.responseQueue.length <= 1 && !state.isAIWorking) {
+            if (thread.responseQueue.length <= 1 && !state.isAIWorking && !thread.isEnded) {
                 fetchAndQueueResponses(thread);
             }
         }
@@ -1163,8 +1239,14 @@ function renderThreadList() {
     listEl.innerHTML = sorted.map(t => {
         const isRomActive = state.romMode && t.id === state.activeThreadId;
         const isWorking = !isRomActive && (t.responseQueue.length > 0 || (state.isAIWorking && t.isActive));
-        const badgeClass = isRomActive ? 'status-rom' : (isWorking ? 'status-active' : '');
-        const badgeText = isRomActive ? 'ROM中' : (isWorking ? '稼働中' : '待機中');
+        let badgeClass = isRomActive ? 'status-rom' : (isWorking ? 'status-active' : '');
+        let badgeText = isRomActive ? 'ROM中' : (isWorking ? '稼働中' : '待機中');
+        
+        // 終了済みのスレはグレーにする
+        if (t.isEnded && t.responseQueue.length === 0) {
+            badgeClass = '';
+            badgeText = '終了';
+        }
         
         return `
         <div class="thread-list-item ${t.id === state.activeThreadId ? 'active' : ''}" data-id="${t.id}">
@@ -1195,9 +1277,16 @@ function renderPosts() {
     const isRomActive = state.romMode && thread.id === state.activeThreadId;
     const isWorking = !isRomActive && (thread.responseQueue.length > 0 || (state.isAIWorking && thread.isActive));
     
-    const btnText = isRomActive ? "ROM中" : (isWorking ? "稼働中" : "待機中");
-    const btnColor = isRomActive ? "#4CAF50" : (isWorking ? "#ffeb3b" : "#ddd");
-    const btnTextColor = isRomActive ? "#fff" : (isWorking ? "#000" : "#666");
+    let btnText = isRomActive ? "ROM中" : (isWorking ? "稼働中" : "待機中");
+    let btnColor = isRomActive ? "#4CAF50" : (isWorking ? "#ffeb3b" : "#ddd");
+    let btnTextColor = isRomActive ? "#fff" : (isWorking ? "#000" : "#666");
+
+    // 終了済みのスレ
+    if (thread.isEnded && thread.responseQueue.length === 0) {
+        btnText = "終了";
+        btnColor = "#eee";
+        btnTextColor = "#999";
+    }
 
     let html = `
         <div style="border-bottom: 2px solid #ccc; padding-bottom:10px; margin-bottom:20px; display:flex; justify-content:space-between; align-items:center;">
