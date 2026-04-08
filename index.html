@@ -194,14 +194,36 @@
 
         /* スマホ向けレイアウト調整 */
         @media (max-width: 768px) {
-            .main-container { flex-direction: column; }
+            .main-container { 
+                flex-direction: column; 
+                position: relative;
+            }
             aside { 
                 width: 100%; 
-                flex: none; 
-                height: 45vh; /* 画面高の45%をスレッド一覧枠に確保 */
+                flex: 1; /* 全画面をスレ一覧として占有させる */
+                height: auto; 
                 border-right: none; 
-                border-bottom: 2px solid var(--border-color); 
+                border-bottom: none; 
             }
+            main#thread-view {
+                position: absolute;
+                top: 100%; /* 初期は画面下へ隠しておく */
+                left: 0;
+                width: 100%;
+                height: 100%;
+                z-index: 50; /* スレ一覧の上に表示 */
+                transition: top 0.3s ease-in-out; /* にゅっと出るアニメーション */
+            }
+            main#thread-view.open {
+                top: 0; /* クラス付与で上までスライドアップ */
+            }
+            .mobile-back-btn {
+                display: block !important;
+            }
+        }
+
+        .mobile-back-btn {
+            display: none;
         }
 
         .toast {
@@ -1280,7 +1302,12 @@ function openThread(id) {
     renderPosts();
     document.getElementById('form-container').style.display = 'block';
     const main = document.getElementById('thread-view');
+    main.classList.add('open'); // スライドアップさせる
     setTimeout(() => main.scrollTop = main.scrollHeight, 50);
+}
+
+function closeThreadMobile() {
+    document.getElementById('thread-view').classList.remove('open');
 }
 
 function renderPosts() {
@@ -1298,14 +1325,14 @@ function renderPosts() {
     // 終了済みのスレ
     if (thread.isEnded && thread.responseQueue.length === 0) {
         btnText = "終了";
-        btnColor = "#eee";
-        btnTextColor = "#999";
-    }
+    const btnColor = isRomActive ? "#4CAF50" : (thread.isActive ? "#ffeb3b" : "#ddd");
+    const btnTextColor = isRomActive ? "#fff" : (thread.isActive ? "#000" : "#666");
 
     let html = `
         <div style="border-bottom: 2px solid #ccc; padding-bottom:10px; margin-bottom:20px; display:flex; justify-content:space-between; align-items:center;">
-            <h2 style="font-size:1.1rem; margin:0;">${thread.title}</h2>
-            <span id="thread-status-badge" style="font-size:0.75rem; padding:4px 10px; background:${btnColor}; color:${btnTextColor}; border:1px solid #999; border-radius:3px; font-weight:bold;">
+            <button class="mobile-back-btn action-btn" style="width:auto; margin-right:10px;" onclick="closeThreadMobile()">戻る</button>
+            <h2 style="font-size:1.1rem; margin:0; flex:1;">${thread.title}</h2>
+            <span id="thread-status-badge" style="font-size:0.75rem; padding:4px 10px; background:${btnColor}; color:${btnTextColor}; border:1px solid #999; border-radius:3px; font-weight:bold; white-space:nowrap;">
                 ${btnText}
             </span>
         </div>
