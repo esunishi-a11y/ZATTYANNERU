@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ざつちゃんねる　匿名掲示板</title>
+    <title>ざつちゃんねる　匿名掲示板 </title>
     <style>
         :root {
             --bg-color: #efefef;
@@ -44,7 +44,8 @@
             width: var(--sidebar-width);
             background-color: #f9f9f9;
             border-right: 1px solid var(--border-color);
-            overflow-y: auto;
+            /* メニュー全体ではなく、スレッドリストだけをスクロールさせるように変更 */
+            overflow: hidden; 
             display: flex;
             flex-direction: column;
         }
@@ -53,14 +54,20 @@
             background: #eee;
             font-weight: bold;
             border-bottom: 1px solid var(--border-color);
-            position: sticky;
-            top: 0;
+            /* 潰れないように固定 */
+            flex-shrink: 0; 
             display: flex;
             flex-direction: column;
             gap: 10px;
             z-index: 10;
         }
         
+        /* スレッド一覧部分だけをスクロールさせる */
+        #thread-list {
+            flex: 1;
+            overflow-y: auto;
+        }
+
         .board-selector {
             display: flex;
             align-items: center;
@@ -185,9 +192,16 @@
         .modal input, .modal select { width: 100%; padding: 10px; margin-bottom: 15px; border: 1px solid #ccc; border-radius: 4px; }
         .modal-btns { display: flex; justify-content: flex-end; gap: 10px; }
 
+        /* スマホ向けレイアウト調整 */
         @media (max-width: 768px) {
             .main-container { flex-direction: column; }
-            aside { width: 100%; flex: 0 0 40%; height: 40%; border-right: none; border-bottom: 2px solid var(--border-color); }
+            aside { 
+                width: 100%; 
+                flex: none; 
+                height: 45vh; /* 画面高の45%をスレッド一覧枠に確保 */
+                border-right: none; 
+                border-bottom: 2px solid var(--border-color); 
+            }
         }
 
         .toast {
@@ -568,10 +582,10 @@ async function init() {
                 if (!t.lastAIPostTime) t.lastAIPostTime = t.lastUpdate || 0;
                 if (!t.nextCooldown) t.nextCooldown = calculateCooldown(state.speedMode, state.romMode, false);
                 if (t.opPersona === undefined) t.opPersona = null; 
-                if (t.isEnded === undefined) t.isEnded = false; // 終了フラグ
-                if (t.endReason === undefined) t.endReason = null; // 終了理由
-                if (t.isSequel === undefined) t.isSequel = false; // 後日談スレかどうか
-                if (t.hasSequelGenerated === undefined) t.hasSequelGenerated = false; // 自分の後日談を作ったか
+                if (t.isEnded === undefined) t.isEnded = false; 
+                if (t.endReason === undefined) t.endReason = null; 
+                if (t.isSequel === undefined) t.isSequel = false; 
+                if (t.hasSequelGenerated === undefined) t.hasSequelGenerated = false; 
             });
         } catch(e) {
             console.error("Save data parsing error", e);
@@ -765,16 +779,16 @@ IS_SEQUELには、後日談スレの場合のみ true を、それ以外は fals
             const cleanedText = responseText.replace(new RegExp('\\u0060\\u0060\\u0060(?:xml|html|json)?\\n?', 'gi'), '').replace(new RegExp('\\u0060\\u0060\\u0060', 'g'), '').trim();
             const threads = [];
             
-            const threadMatches = [...cleanedText.matchAll(/\[THREAD\]([\s\S]*?)\[END_THREAD\]/gi)];
+            const threadMatches = [...cleanedText.matchAll(new RegExp('\\[THREAD\\]([\\s\\S]*?)\\[END_THREAD\\]', 'gi'))];
             
             for (const tm of threadMatches) {
                 const block = tm[1];
-                const titleMatch = block.match(/\[TITLE\]([\s\S]*?)\[END_TITLE\]/i);
-                const persMatch = block.match(/\[PERSONALITY\]([\s\S]*?)\[END_PERSONALITY\]/i);
-                const seqMatch = block.match(/\[IS_SEQUEL\]([\s\S]*?)\[END_IS_SEQUEL\]/i);
-                const nameMatch = block.match(/\[NAME\]([\s\S]*?)\[END_NAME\]/i);
-                const opPersonaMatch = block.match(/\[OP_PERSONA\]([\s\S]*?)\[END_OP_PERSONA\]/i);
-                const firstMatch = block.match(/\[FIRST_POST\]([\s\S]*?)\[END_FIRST_POST\]/i);
+                const titleMatch = block.match(new RegExp('\\[TITLE\\]([\\s\\S]*?)\\[END_TITLE\\]', 'i'));
+                const persMatch = block.match(new RegExp('\\[PERSONALITY\\]([\\s\\S]*?)\\[END_PERSONALITY\\]', 'i'));
+                const seqMatch = block.match(new RegExp('\\[IS_SEQUEL\\]([\\s\\S]*?)\\[END_IS_SEQUEL\\]', 'i'));
+                const nameMatch = block.match(new RegExp('\\[NAME\\]([\\s\\S]*?)\\[END_NAME\\]', 'i'));
+                const opPersonaMatch = block.match(new RegExp('\\[OP_PERSONA\\]([\\s\\S]*?)\\[END_OP_PERSONA\\]', 'i'));
+                const firstMatch = block.match(new RegExp('\\[FIRST_POST\\]([\\s\\S]*?)\\[END_FIRST_POST\\]', 'i'));
                 
                 if (titleMatch && firstMatch) {
                     let personality = persMatch ? persMatch[1].trim().toLowerCase() : 'normal';
@@ -1034,14 +1048,14 @@ ${dynamicRules || "特になし"}
         const responseText = await callGemini(userQuery, systemPrompt);
         if (responseText) {
             const cleanedText = responseText.replace(new RegExp('\\u0060\\u0060\\u0060(?:xml|html|json)?\\n?', 'gi'), '').replace(new RegExp('\\u0060\\u0060\\u0060', 'g'), '').trim();
-            const matches = [...cleanedText.matchAll(/\[POST\]([\s\S]*?)\[END_POST\]/gi)];
+            const matches = [...cleanedText.matchAll(new RegExp('\\[POST\\]([\\s\\S]*?)\\[' + 'END_POST\\]', 'gi'))];
             let parsedPosts = [];
             
             for (const m of matches) {
                 const block = m[1];
-                let n = block.match(/\[NAME\]([\s\S]*?)\[END_NAME\]/i)?.[1]?.trim() || "名無しさん";
+                let n = block.match(new RegExp('\\[NAME\\]([\\s\\S]*?)\\[' + 'END_NAME\\]', 'i'))?.[1]?.trim() || "名無しさん";
                 if (n.includes("◆YOU")) n = "名無しさん"; 
-                const b = block.match(/\[BODY\]([\s\S]*?)\[END_BODY\]/i)?.[1]?.trim();
+                const b = block.match(new RegExp('\\[BODY\\]([\\s\\S]*?)\\[' + 'END_BODY\\]', 'i'))?.[1]?.trim();
                 if (b) {
                     parsedPosts.push({ name: n, body: b });
                 }
@@ -1049,9 +1063,9 @@ ${dynamicRules || "特になし"}
 
             if (parsedPosts.length === 0) {
                 const lines = cleanedText.split('\n')
-                    .map(l => l.replace(/\[\/?(POST|BODY|RES|NAME|THREAD|TITLE|END_[A-Z_]+)\]/gi, '').trim())
-                    .map(l => l.replace(/^(Res:|レス:|>>\d+|[*\-]\s*|\d+\.\s*)/i, '').trim())
-                    .map(l => l.replace(/^(名無しさん|ID:[\w\d]+|\d{4}年?.*?)\s*/g, '').trim())
+                    .map(l => l.replace(new RegExp('\\[\\/?(POST|BODY|RES|NAME|THREAD|TITLE|END_[A-Z_]+)\\]', 'gi'), '').trim())
+                    .map(l => l.replace(new RegExp('^(Res:|レス:|>>\\d+|[*\\-]\\s*|\\d+\\.\\s*)', 'i'), '').trim())
+                    .map(l => l.replace(new RegExp('^(名無しさん|ID:[\\w\\d]+|\\d{4}年?.*?)\\s*', 'g'), '').trim())
                     .filter(l => l && l.length < 200);
                 parsedPosts = lines.map(b => ({ name: "名無しさん", body: b }));
             }
