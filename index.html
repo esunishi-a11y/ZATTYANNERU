@@ -44,7 +44,6 @@
             width: var(--sidebar-width);
             background-color: #f9f9f9;
             border-right: 1px solid var(--border-color);
-            /* メニュー全体ではなく、スレッドリストだけをスクロールさせるように変更 */
             overflow: hidden; 
             display: flex;
             flex-direction: column;
@@ -54,7 +53,6 @@
             background: #eee;
             font-weight: bold;
             border-bottom: 1px solid var(--border-color);
-            /* 潰れないように固定 */
             flex-shrink: 0; 
             display: flex;
             flex-direction: column;
@@ -62,7 +60,6 @@
             z-index: 10;
         }
         
-        /* スレッド一覧部分だけをスクロールさせる */
         #thread-list {
             flex: 1;
             overflow-y: auto;
@@ -197,25 +194,28 @@
             .main-container { 
                 flex-direction: column; 
                 position: relative;
+                overflow: hidden; /* スマホで確実にはみ出しを防ぐ */
             }
             aside { 
                 width: 100%; 
                 flex: 1; /* 全画面をスレ一覧として占有させる */
-                height: auto; 
+                height: 100%; 
                 border-right: none; 
                 border-bottom: none; 
             }
             main#thread-view {
                 position: absolute;
-                top: 100%; /* 初期は画面下へ隠しておく */
+                top: 0;
                 left: 0;
                 width: 100%;
                 height: 100%;
                 z-index: 50; /* スレ一覧の上に表示 */
-                transition: top 0.3s ease-in-out; /* にゅっと出るアニメーション */
+                transform: translateY(100%); /* 初期は画面下へ確実に隠しておく */
+                transition: transform 0.3s ease-in-out; /* にゅっと出るアニメーション */
+                background-color: var(--thread-bg); /* スレ一覧が透けないように背景色を指定 */
             }
             main#thread-view.open {
-                top: 0; /* クラス付与で上までスライドアップ */
+                transform: translateY(0); /* クラス付与で上までスライドアップ */
             }
             .mobile-back-btn {
                 display: block !important;
@@ -912,7 +912,7 @@ function updateRomButtonUI() {
 }
 
 async function fetchAndQueueResponses(thread) {
-    if (state.isAIWorking || thread.isEnded) return; // 終了したスレにはAIは反応しない
+    if (state.isAIWorking || thread.isEnded) return; 
     setAIWorking(true);
 
     const context = thread.posts.slice(-5).map(p => `[${p.num}] 名前:${p.name} 本文:${p.body}`).join("\n");
@@ -979,7 +979,7 @@ async function fetchAndQueueResponses(thread) {
             else if (len >= 20) endProb = 0.05;
             
             if (Math.random() < endProb) {
-                thread.isEnded = true; // システム上で完全に終了させる
+                thread.isEnded = true; 
                 const endTypeR = Math.random();
                 if (endTypeR < 0.50) {
                     thread.endReason = 'fadeout';
@@ -1278,7 +1278,6 @@ function renderThreadList() {
         let badgeClass = isRomActive ? 'status-rom' : (isWorking ? 'status-active' : '');
         let badgeText = isRomActive ? 'ROM中' : (isWorking ? '稼働中' : '待機中');
         
-        // 終了済みのスレはグレーにする
         if (t.isEnded && t.responseQueue.length === 0) {
             badgeClass = '';
             badgeText = '終了';
@@ -1302,7 +1301,7 @@ function openThread(id) {
     renderPosts();
     document.getElementById('form-container').style.display = 'block';
     const main = document.getElementById('thread-view');
-    main.classList.add('open'); // スライドアップさせる
+    main.classList.add('open'); 
     setTimeout(() => main.scrollTop = main.scrollHeight, 50);
 }
 
@@ -1322,11 +1321,11 @@ function renderPosts() {
     let btnColor = isRomActive ? "#4CAF50" : (isWorking ? "#ffeb3b" : "#ddd");
     let btnTextColor = isRomActive ? "#fff" : (isWorking ? "#000" : "#666");
 
-    // 終了済みのスレ
     if (thread.isEnded && thread.responseQueue.length === 0) {
         btnText = "終了";
-    const btnColor = isRomActive ? "#4CAF50" : (thread.isActive ? "#ffeb3b" : "#ddd");
-    const btnTextColor = isRomActive ? "#fff" : (thread.isActive ? "#000" : "#666");
+        btnColor = "#eee";
+        btnTextColor = "#999";
+    }
 
     let html = `
         <div style="border-bottom: 2px solid #ccc; padding-bottom:10px; margin-bottom:20px; display:flex; justify-content:space-between; align-items:center;">
